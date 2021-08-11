@@ -1,4 +1,5 @@
 import numpy as np
+from numpy.core.fromnumeric import clip
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -137,8 +138,127 @@ def train(dir_path):
         agent.learn(torch.stack(log_probs),torch.from_numpy(rewards))
     # return avg_total_rewards,avg_fin_rewards
 
+
+class PPO2_Agent():
+    def __init__(self,network,train_step,e) -> None:
+        self.net=network
+        self.optimizer=optim.Adam(self.net.parameters(),lr=1e-3,weight_decay=1e-4)
+        # self.optimizer=optim.Adam(self.net.parameters())
+        self.train_step=train_step
+        self.e=e
+    
+    def learn(self,state,action,probs,reward):
+        self.net.train()
+        for _ in range(self.train_step):
+            state=state.detach()
+            action=action.detach()
+            probs=probs.detach()
+            reward=reward.detach()
+
+
+            now_action_prob=self.net(state)
+
+            now_probs=[now_action_prob[i,action[i,0].int()] for i in range(action.shape[0])]
+            now_probs=torch.stack(now_probs).unsqueeze(-1)
+
+            ori_expectation=now_probs*reward/probs
+            clip_expectation=torch.clip(now_probs/probs,1-self.e,1+self.e)*reward
+
+            fin_expectation=torch.min(ori_expectation,clip_expectation)
+            loss=(-fin_expectation).sum()
+
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+
+    def sample(self,state):
+        action_prob=self.net(torch.FloatTensor(state))
+        action_dist=Categorical(action_prob)
+        action=action_dist.sample()
+        prob=action_prob[action.item()]
+        return action.item(),prob
+
+def PPO2_train(dir_path):
+    
+    EPISODE_PER_BATCH=10
+    NUM_BATCH=100000
+
+    SAVE_BATCH=100
+    alpha=0.6
+
+    ppo_train_step=3
+    ppo_e=0.2
+
+    network=PolicyGradientNet()
+    agent=PPO2_Agent(network,ppo_train_step,ppo_e)
+
+    avg_total_rewards,avg_fin_rewards=[],[]
+    env=get_env()
+
+    for iter in range(NUM_BATCH):
+        
+        agent.net.eval()
+
+        states,actions,probs,rewards=[],[],[],[]
+        total_rewards,fin_rewards=[],[]
+
+        for _ in range(EPISODE_PER_BATCH):
+            state=env.reset()
+
+
+            total_reward=0
+
+            now_reward=[]
+
+            while True:
+                action,prob=agent.sample(state)
+
+                states.append(state)
+                actions.append(action)
+
+                state,reward,done,_=env.step(action)
+
+                probs.append(prob)
+                now_reward.append(reward)
+
+                total_reward+=reward
+
+                if done:
+                    total_rewards.append(total_reward)
+                    fin_rewards.append(reward)
+
+                    now_reward=compute_reward(now_reward,alpha)
+                    rewards=rewards+now_reward
+                    break
+        ave_total_reward=sum(total_rewards)/len(total_rewards)
+        ave_fin_reward=sum(fin_rewards)/len(fin_rewards)
+        avg_total_rewards.append(ave_total_reward)
+        avg_fin_rewards.append(ave_fin_reward)
+
+        if iter%SAVE_BATCH==0:
+            print(f"Total:{ave_total_reward:4.1f},Final:{ave_fin_reward:4.1f}")
+            agent.net.save(os.path.join(dir_path,str(iter)+'.cpt'))
+
+        writer.add_scalar('total',ave_total_reward,iter)
+        writer.add_scalar('final',ave_fin_reward,iter)
+
+        rewards=np.array(rewards)
+        # rewards=(rewards-np.mean(rewards))/(np.std(rewards)+1e-5)
+        rewards=(rewards-np.mean(rewards))
+
+        probs=(torch.stack(probs)).unsqueeze(-1)
+        rewards=(torch.from_numpy(rewards)).unsqueeze(-1)
+        states=torch.from_numpy(np.stack(states))
+        actions=(torch.FloatTensor(actions)).unsqueeze(-1)
+        agent.learn(states,actions,probs,rewards)
+    # return avg_total_rewards,avg_fin_rewards
+
+
 if __name__ == "__main__":
-    train(r'D:\code\rl_code\out')
+    PPO2_train(r'D:\code\rl_code\ppo2_out')
+    
+    # train(r'D:\code\rl_code\out')
+
     # avg_total_rewards,avg_fin_rewards=train()
 
     # plt.plot(avg_total_rewards)
