@@ -25,27 +25,24 @@ def get_env():
     return env
 
 class LayerNet(nn.Module):
-    def __init__(self,input_dim,output_dim,dropout):
+    def __init__(self,input_dim,output_dim):
         super().__init__()
         self.net=nn.Sequential(
             nn.Linear(input_dim,output_dim),
             nn.ReLU()
         )
-        self.dropout=dropout
     def forward(self,input_data):
         out=self.net(input_data)
-        if self.dropout>0:
-            out=F.dropout(out,self.dropout,training=self.training)
         return out
 
 class RL_Net(nn.Module):
-    def __init__(self,dropout=0.2):
+    def __init__(self):
         super().__init__()
         self.net=nn.Sequential(
-            LayerNet(8,32,dropout),
-            LayerNet(32,64,dropout),
-            LayerNet(64,16,dropout),
-            LayerNet(16,64,dropout),
+            LayerNet(8,32),
+            LayerNet(32,64),
+            LayerNet(64,16),
+            LayerNet(16,64),
             nn.Linear(64,4)
         )
     
@@ -120,7 +117,7 @@ class RL_Agent():
             total_reward+=reward
 
             if done:
-                now_reward=compute_reward(now_rewards,reward_alpha)
+                now_rewards=compute_reward(now_rewards,reward_alpha)
                 break
         return now_states,now_actions,now_probs,now_rewards,total_reward,reward
 
@@ -148,7 +145,7 @@ class PPO2_Agent(RL_Agent):
     def __init__(self, net,train_step, lr, weight_decay) -> None:
         super().__init__(net, lr=lr, weight_decay=weight_decay)
         self.train_step=train_step
-        self.e=0.4
+        self.e=0.2
     
     @abstractmethod
     def compute_loss(self,states,actions,probs,rewards):
@@ -172,7 +169,7 @@ class PPO2_Agent(RL_Agent):
 def AgentFactory(agent_name,lr,train_step):
     net=RL_Net()
 
-    weight_decay=0
+    weight_decay=1e-4
 
     if agent_name=="PPO2":
         out=PPO2_Agent(net,train_step,lr,weight_decay)
@@ -188,7 +185,7 @@ def train(out_dir,agent_name):
     PLAY_PER_BATCH=10
     NUM_BATCH=100000
     SAVE_BATCH=100
-    alpha=0.8
+    alpha=0.6
 
     if os.path.exists(out_dir)==False:
         os.mkdir(out_dir)
@@ -230,7 +227,8 @@ def train(out_dir,agent_name):
         writer.add_scalar('final',ave_fin_reward,iter)
 
         all_rewards=np.array(all_rewards)
-        all_rewards=(all_rewards-np.mean(all_rewards))/(np.std(all_rewards)+1e-5)
+        # all_rewards=(all_rewards-np.mean(all_rewards))/(np.std(all_rewards)+1e-5)
+        all_rewards=(all_rewards-np.mean(all_rewards))
 
         all_probs=(torch.stack(all_probs)).unsqueeze(-1)
         all_rewards=(torch.from_numpy(all_rewards)).unsqueeze(-1)
@@ -240,5 +238,5 @@ def train(out_dir,agent_name):
         agent.learn(all_states,all_actions,all_probs,all_rewards)
 
 if __name__ == "__main__":
-    train(r'D:\code\rl_code\out','PG')
-    # train(r'D:\code\rl_code\out','PPO2')
+    # train(r'D:\code\rl_code\out','PG')
+    train(r'D:\code\rl_code\out','PPO2')
