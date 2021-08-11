@@ -25,25 +25,27 @@ def get_env():
     return env
 
 class LayerNet(nn.Module):
-    def __init__(self,input_dim,output_dim):
+    def __init__(self,input_dim,hidden_dim):
         super().__init__()
         self.net=nn.Sequential(
-            nn.Linear(input_dim,output_dim),
+            nn.Linear(input_dim,hidden_dim),
             nn.ReLU()
+            # nn.Linear(hidden_dim,input_dim),
+            # nn.ReLU(),
         )
     def forward(self,input_data):
         out=self.net(input_data)
+        # out+=input_data
         return out
 
 class RL_Net(nn.Module):
     def __init__(self):
         super().__init__()
         self.net=nn.Sequential(
-            LayerNet(8,32),
-            LayerNet(32,64),
-            LayerNet(64,16),
-            LayerNet(16,64),
-            nn.Linear(64,4)
+            LayerNet(8,128),
+            LayerNet(128,16),
+            LayerNet(16,128),
+            nn.Linear(128,4)
         )
     
     def forward(self,state):
@@ -227,8 +229,8 @@ def train(out_dir,agent_name):
         writer.add_scalar('final',ave_fin_reward,iter)
 
         all_rewards=np.array(all_rewards)
-        # all_rewards=(all_rewards-np.mean(all_rewards))/(np.std(all_rewards)+1e-5)
-        all_rewards=(all_rewards-np.mean(all_rewards))
+        all_rewards=(all_rewards-np.mean(all_rewards))/(np.std(all_rewards)+1e-5)
+        # all_rewards=(all_rewards-np.mean(all_rewards))
 
         all_probs=(torch.stack(all_probs)).unsqueeze(-1)
         all_rewards=(torch.from_numpy(all_rewards)).unsqueeze(-1)
@@ -238,5 +240,5 @@ def train(out_dir,agent_name):
         agent.learn(all_states,all_actions,all_probs,all_rewards)
 
 if __name__ == "__main__":
-    # train(r'D:\code\rl_code\out','PG')
-    train(r'D:\code\rl_code\out','PPO2')
+    train(r'D:\code\rl_code\out','PG')
+    # train(r'D:\code\rl_code\out','PPO2')
