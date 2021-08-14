@@ -171,7 +171,7 @@ class PPO2_Agent(RL_Agent):
 def AgentFactory(agent_name,lr,train_step):
     net=RL_Net()
 
-    weight_decay=1e-4
+    weight_decay=0
 
     if agent_name=="PPO2":
         out=PPO2_Agent(net,train_step,lr,weight_decay)
@@ -181,13 +181,13 @@ def AgentFactory(agent_name,lr,train_step):
 
 
 def train(out_dir,agent_name):
-    lr=1e-3
-    train_step=20
+    lr=1e-4
+    train_step=10
 
-    PLAY_PER_BATCH=10
+    PLAY_PER_BATCH=5
     NUM_BATCH=100000
     SAVE_BATCH=100
-    alpha=0.6
+    alpha=0.99
 
     if os.path.exists(out_dir)==False:
         os.mkdir(out_dir)
@@ -240,5 +240,5 @@ def train(out_dir,agent_name):
         agent.learn(all_states,all_actions,all_probs,all_rewards)
 
 if __name__ == "__main__":
-    train(r'D:\code\rl_code\out','PG')
-    # train(r'D:\code\rl_code\out','PPO2')
+    # train(r'D:\code\rl_code\out','PG')
+    train(r'D:\code\rl_code\out','PPO2')
