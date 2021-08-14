@@ -24,6 +24,8 @@ import random
 
 from collections import deque
 
+import copy
+
 def get_env():
     env=gym.make('LunarLander-v2')
     return env
@@ -36,7 +38,9 @@ class Q_Net(nn.Module):
             nn.ReLU(),
             nn.Linear(128,64),
             nn.ReLU(),
-            nn.Linear(64,4)
+            nn.Linear(64,128),
+            nn.ReLU(),
+            nn.Linear(128,4)
         )
     
     def forward(self,state):
@@ -93,45 +97,56 @@ class GameDataCollate:
 
 class QLearning_Agent():
     def __init__(self) -> None:
-        lr=1e-4
-        weight_decay=0
+        self.lr=1e-4
+        self.weight_decay=1e-5
 
         self.train_step=50
         self.batch_size=200
 
-        self.epoch=10000
+        self.epoch=2000000
         self.show_epoch=50
 
-        self.random_p=0.5
-        self.random_p_degree=0.1
+        self.random_p=0.3
+        self.random_p_degree=0.05
         self.random_p_degree_step=200
-        self.random_p_min=0
+        self.random_p_min=0.05
 
         self.eval_num=10
 
         self.writer=None
 
-        self.c_step=10
+        self.c_step=20
 
         self.copy_net=None
 
-        self.play_num=5
+        self.play_num=2
 
-        self.cache_len=5000
+        self.cache_len=30000
 
-        self.min_total_reward=-300
+        self.min_total_reward=-2000
 
-        self.net=Q_Net()
-        self.optimizer=optim.Adam(self.net.parameters(),lr=lr,weight_decay=weight_decay)
+        # self.net=Q_Net()
+        # self.optimizer=optim.Adam(self.net.parameters(),lr=lr,weight_decay=weight_decay)
+
+        self.net=None
+        self.optimizer=None
+
+        self.env=get_env()
+
         # self.copy_net=None
         # self.get_copy_net()
         self.data=GameData(self.cache_len)
 
+    def set_net(self,net):
+        # self.net=Q_Net()
+        self.net=net
+        self.optimizer=optim.Adam(self.net.parameters(),lr=self.lr,weight_decay=self.weight_decay)
 
     def get_copy_net(self):
-        copy_net=Q_Net()
-        copy_net.load_state_dict(self.net.state_dict())
-        return copy_net
+        if self.copy_net is None:
+            self.copy_net=copy.deepcopy(self.net)
+        self.copy_net.load_state_dict(self.net.state_dict())
+        return self.copy_net
     
     @abstractmethod
     def compute_loss(self,states,actions,rewards,next_states):
@@ -169,8 +184,9 @@ class QLearning_Agent():
             loss.backward()
             # for p in self.net.parameters():
             #     p.grad.data.clamp_(-1,1)
-            torch.nn.utils.clip_grad_norm_(self.net.parameters(), 5)
+            torch.nn.utils.clip_grad_norm_(self.net.parameters(), 1)
             self.optimizer.step()
+        # self.copy_net=self.get_copy_net()
 
     def play(self,env):
         self.net.eval()
@@ -211,13 +227,11 @@ class QLearning_Agent():
         return total_reward,reward
 
     def train(self):
-        now_env=get_env()
-        
         self.writer = SummaryWriter(os.path.join('logData', time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime(time.time()))))
         for i in range(self.epoch):
             all_total_reward,all_fin_reward=[],[]
             for _ in range(self.play_num):
-                total_reward,fin_ward=self.play(now_env)
+                total_reward,fin_ward=self.play(self.env)
                 all_total_reward.append(total_reward)
                 all_fin_reward.append(fin_ward)
             self.writer.add_scalar('total',np.array(all_total_reward).mean(),i)
@@ -236,9 +250,8 @@ class QLearning_Agent():
         totals=[]
         fins=[]
         
-        now_env=get_env()
         for i in range(self.eval_num):
-            now_total,now_fin=self.play(now_env)
+            now_total,now_fin=self.play(self.env)
             totals.append(now_total)
             fins.append(now_fin)
         ave_total=np.array(now_total).mean()
@@ -249,8 +262,130 @@ class QLearning_Agent():
         self.random_p=0
         self.random_p=ori_p
 
+class Double_QLearning_Agent(QLearning_Agent):
+    def __init__(self) -> None:
+        super().__init__()
+
+    @abstractmethod
+    def compute_loss(self, states, actions, rewards, next_states):
+        self.copy_net.eval()
+
+        next_all_rewards=self.copy_net(next_states)
+        now_next_action=torch.argmax(self.net(next_states),dim=-1).unsqueeze(-1)
+        except_next_rewards=next_all_rewards.gather(1,now_next_action.long())
+        except_reward=except_next_rewards+rewards
+        except_reward.detach()
+
+        now_select_rewards=self.net(states).gather(1,actions.long())
+        
+        loss_func=nn.SmoothL1Loss()
+        loss=loss_func(now_select_rewards,except_reward)
+        return loss
+
+class Dueling_Net(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.net=nn.Sequential(
+            nn.Linear(8,128),
+            nn.ReLU(),
+            nn.Linear(128,256),
+            nn.ReLU(),
+            nn.Linear(256,16),
+            nn.ReLU()
+        )
+        self.v_net=nn.Sequential(
+            nn.Linear(16,64),
+            nn.ReLU(),
+            nn.Linear(64,128),
+            nn.ReLU(),
+            nn.Linear(128,1)
+        )
+        self.a_net=nn.Sequential(
+            nn.Linear(16,64),
+            nn.LayerNorm(64),
+            nn.ReLU(),
+            nn.Linear(64,128),
+            nn.LayerNorm(128),
+            nn.Linear(128,4,bias=False),
+        )
+    
+    def forward(self,state):
+        hidden_data=self.net(state)
+        v_value=self.v_net(hidden_data)
+        a_value=self.a_net(hidden_data)
+        a_value=(a_value.T-a_value.mean(dim=-1)).T
+        return a_value+v_value
+
+    def save(self,now_path):
+        check_point=self.state_dict()
+        torch.save(check_point,now_path)
+
+    def load(self,now_path):
+        data=torch.load(now_path)
+        self.load_state_dict(data)
+
+class NoiseNet_agent(Double_QLearning_Agent):
+    def __init__(self) -> None:
+        super().__init__()
+
+    def get_noise_net(self):
+        noise_net=copy.deepcopy(self.net)
+        all_params=[]
+        noise_scale=0.2
+        for i in noise_net.parameters():
+            all_params.append(i.item())
+        now_std=np.array(all_params).std()
+        for i in noise_net.paramsters():
+            i+=now_std*torch.randn(1)
+        return noise_net
+        
+
+    @abstractmethod
+    def play(self, env):
+        self.net.eval()
+        
+        state=env.reset()
+
+        now_states=[]
+        now_actions=[]
+        now_rewards=[]
+        next_states=[]
+
+        total_reward=0
+        while True:
+            q_value=self.net(torch.FloatTensor(state))
+            action=torch.argmax(q_value).item()
+            if torch.rand(1)<self.random_p:
+                action=random.randrange(q_value.shape[0])
+            
+            now_states.append(state)
+            now_actions.append(action)
+            state,reward,done,_=env.step(action)
+            
+            now_rewards.append(reward)
+            next_states.append(state)
+
+            total_reward+=reward
+
+            if total_reward<self.min_total_reward:
+                done=True
+
+            if done:
+                break
+        for i in range(len(now_states)):
+            self.data.states.append(now_states[i])
+            self.data.actions.append(now_actions[i])
+            self.data.rewards.append(now_rewards[i])
+            self.data.next_states.append(next_states[i])
+        return total_reward,reward
 
 
 if __name__ == "__main__":
-    a=QLearning_Agent()
+    # a=QLearning_Agent()
+    # a=Double_QLearning_Agent()
+    # a.train()
+    due_net=Dueling_Net()
+    a=Double_QLearning_Agent()
+    a.set_net(due_net)
+    a.get_copy_net()
     a.train()
