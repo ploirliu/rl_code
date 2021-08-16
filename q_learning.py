@@ -98,7 +98,7 @@ class GameDataCollate:
 class QLearning_Agent():
     def __init__(self) -> None:
         self.lr=1e-4
-        self.weight_decay=1e-5
+        self.weight_decay=1e-4
 
         self.train_step=50
         self.batch_size=200
@@ -106,12 +106,12 @@ class QLearning_Agent():
         self.epoch=2000000
         self.show_epoch=50
 
-        self.random_p=0.3
-        self.random_p_degree=0.05
-        self.random_p_degree_step=200
-        self.random_p_min=0.05
+        self.random_p=0.4
+        self.random_p_degree=0.02
+        self.random_p_degree_step=100
+        self.random_p_min=0.04
 
-        self.eval_num=10
+        self.eval_num=2
 
         self.writer=None
 
@@ -119,9 +119,9 @@ class QLearning_Agent():
 
         self.copy_net=None
 
-        self.play_num=2
+        self.play_num=10
 
-        self.cache_len=30000
+        self.cache_len=100000
 
         self.min_total_reward=-2000
 
