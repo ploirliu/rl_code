@@ -145,18 +145,18 @@ class QLearning_Agent():
         self.target_net.load_state_dict(self.net.state_dict())
 
     def get_except(self,rewards,next_states,is_done):
-        # self.target_net.eval()
-        # self.net.eval()
-        # with torch.no_grad():
-        #     next_action=torch.argmax(self.net(next_states),dim=-1).unsqueeze(-1)
-        #     next_reward=self.target_net(next_states).gather(1,next_action.long())
-        #     next_reward[is_done]=0
-        #     except_reward=rewards+self.reward_alpha*next_reward
         self.target_net.eval()
+        self.net.eval()
         with torch.no_grad():
-            next_reward=torch.max(self.target_net(next_states),dim=-1)[0].unsqueeze(-1)
+            next_action=torch.argmax(self.net(next_states),dim=-1).unsqueeze(-1)
+            next_reward=self.target_net(next_states).gather(1,next_action.long())
             next_reward[is_done]=0
             except_reward=rewards+self.reward_alpha*next_reward
+        # self.target_net.eval()
+        # with torch.no_grad():
+        #     next_reward=torch.max(self.target_net(next_states),dim=-1)[0].unsqueeze(-1)
+        #     next_reward[is_done]=0
+        #     except_reward=rewards+self.reward_alpha*next_reward
         return except_reward
 
     def get_estimate(self,states,actions):
